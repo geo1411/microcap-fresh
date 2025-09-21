@@ -2,13 +2,19 @@ name: scan-and-publish
 
 on:
   schedule:
-    - cron: "0 * * * *"    # every hour (UTC)
-  workflow_dispatch: {}     # manual Run button
+    - cron: "*/30 * * * *"   # every 30 minutes (UTC)
+  workflow_dispatch: {}       # manual Run button
+  push:
+    branches: [ "main" ]      # re-deploy on any change to main
 
 permissions:
   contents: read
   pages: write
   id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -27,7 +33,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run scanner (wider shortlist)
+      - name: Run scanner (wide, ranked, SL/TP/Fib)
         run: |
           mkdir -p out_upload2
           python newcoin_hunter.py \
@@ -43,24 +49,40 @@ jobs:
             --require_social_refine false
 
       - name: Prepare site folder
-            - name: Stamp pages with build time
         run: |
-          STAMP="<div style='padding:8px 12px;margin:12px 0;background:#fff9d6;border:1px solid #eee;font:14px system-ui'>
-          Last updated: $(date -u '+%Y-%m-%d %H:%M:%S') UTC • Run ID: ${{ github.run_id }} • Commit: ${{ github.sha }}</div>"
+          rm -rf site && mkdir -p site
+          # homepage = discovery; refined = separate page
+          if [ -f out_upload2/candidates_discovery.html ]; then
+            cp out_upload2/candidates_discovery.html site/index.html
+          else
+            echo "<!doctype html><meta charset='utf-8'><h1>No discovery results</h1>" > site/index.html
+          fi
+          [ -f out_upload2/candidates_refined.html ] && cp out_upload2/candidates_refined.html site/candidates_refined.html || true
+          # CSVs
+          for f in candidates_refined.csv candidates_discovery.csv rejects_refined.csv rejects_discovery.csv; do
+            [ -f "out_upload2/$f" ] && cp "out_upload2/$f" site/ || true
+          done
+
+      - name: Stamp pages with build time (safe, no heredocs)
+        run: |
+          ts="$(date -u '+%Y-%m-%d %H:%M:%S')"
+          stamp="<div style='padding:8px 12px;margin:12px 0;background:#fff9d6;border:1px solid #eee;font:14px system-ui'>Last updated: ${ts} UTC • Run ID: ${GITHUB_RUN_ID} • Commit: ${GITHUB_SHA}</div>"
           for f in site/index.html site/candidates_refined.html; do
             [ -f "$f" ] || continue
-            python - "$f" "$STAMP" <<'PY'
-import sys, io, re
-p, stamp = sys.argv[1], sys.argv[2]
-html = io.open(p, encoding="utf-8").read()
-# insert after </h1> if present; else at top of <body>
-if re.search(r"(?i)</h1>", html):
-    html = re.sub(r"(?i)(</h1>)", r"\1\n"+stamp, html, count=1)
-else:
-    html = re.sub(r"(?i)<body[^>]*>", lambda m: m.group(0)+"\n"+stamp, html, count=1)
-io.open(p, "w", encoding="utf-8").write(html)
-PY
+            awk -v STAMP="$stamp" '
+              BEGIN{added=0}
+              /<body[^>]*>/{print; print STAMP; added=1; next}
+              {print}
+              END{if(!added){print STAMP}}
+            ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+            # add a cache-busting meta tag too
+            awk -v VER="${GITHUB_RUN_ID}" '
+              BEGIN{done=0}
+              /<head[^>]*>/{print; print "<meta http-equiv=\"Cache-Control\" content=\"no-cache, no-store, must-revalidate\">"; print "<meta name=\"x-run\" content=\"" VER "\">"; done=1; next}
+              {print}
+            ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
           done
+
       - name: Upload artifact (for Pages)
         uses: actions/upload-pages-artifact@v3
         with:
