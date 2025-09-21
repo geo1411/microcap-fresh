@@ -1,0 +1,40 @@
+name: scan-and-publish
+
+on:
+  schedule:
+    - cron: "0 * * * *"      # every hour on the hour
+  workflow_dispatch: {}       # manual Run button
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - run: |
+          mkdir -p docs
+          python newcoin_hunter.py --out out_upload2 \
+            --target_disc 350 --target_ref 200 \
+            --limit_per_chain 3000 \
+            --max_age_h_refine 1200 \
+            --min_traders_refine 2 \
+            --min_vliq_refine 0.08 \
+            --max_fdv_refine 30000000 \
+            --min_lp_refine 3000 \
+            --max_lp_refine 2000000 \
+            --require_social_refine false
+          cp out_upload2/candidates_discovery.html docs/index.html || true
+          cp out_upload2/candidates_refined.html docs/candidates_refined.html || true
+          cp out_upload2/*.csv docs/ || true
+      - name: Publish to Pages (commit docs/)
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add docs
+          git commit -m "update site" || echo "no changes"
+          git push
