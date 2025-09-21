@@ -61,19 +61,6 @@ else:
 io.open(p, "w", encoding="utf-8").write(html)
 PY
           done
-        run: |
-          mkdir -p site
-          if [ -f out_upload2/candidates_discovery.html ]; then
-            cp out_upload2/candidates_discovery.html site/index.html
-          else
-            echo "<h1>No discovery results</h1>" > site/index.html
-          fi
-          [ -f out_upload2/candidates_refined.html ] && cp out_upload2/candidates_refined.html site/candidates_refined.html || true
-          [ -f out_upload2/candidates_refined.csv ] && cp out_upload2/candidates_refined.csv site/ || true
-          [ -f out_upload2/candidates_discovery.csv ] && cp out_upload2/candidates_discovery.csv site/ || true
-          [ -f out_upload2/rejects_refined.csv ] && cp out_upload2/rejects_refined.csv site/ || true
-          [ -f out_upload2/rejects_discovery.csv ] && cp out_upload2/rejects_discovery.csv site/ || true
-
       - name: Upload artifact (for Pages)
         uses: actions/upload-pages-artifact@v3
         with:
